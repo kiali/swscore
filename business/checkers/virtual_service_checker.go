@@ -10,10 +10,12 @@ import (
 const VirtualCheckerType = "virtualservice"
 
 type VirtualServiceChecker struct {
-	Namespace        string
-	Namespaces       models.Namespaces
-	DestinationRules []kubernetes.IstioObject
-	VirtualServices  []kubernetes.IstioObject
+	Namespace                string
+	Namespaces               models.Namespaces
+	DestinationRules         []kubernetes.IstioObject
+	VirtualServices          []kubernetes.IstioObject
+	ExportedVirtualServices  []kubernetes.IstioObject
+	ExportedDestinationRules []kubernetes.IstioObject
 }
 
 // An Object Checker runs all checkers for an specific object type (i.e.: pod, route rule,...)

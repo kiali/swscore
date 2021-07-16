@@ -48,6 +48,7 @@ func (in *IstioValidationsService) GetValidations(namespace, service string) (mo
 	errChan := make(chan error, 1)
 
 	var istioDetails kubernetes.IstioDetails
+	var exportedResources kubernetes.ExportedResources
 	var services []core_v1.Service
 	var namespaces models.Namespaces
 	var pods []core_v1.Pod
@@ -70,6 +71,7 @@ func (in *IstioValidationsService) GetValidations(namespace, service string) (mo
 
 	// We fetch without target service as some validations will require full-namespace details
 	go in.fetchDetails(&istioDetails, namespace, errChan, &wg)
+	go in.fetchExportedResources(&exportedResources, namespace, errChan, &wg)
 	go in.fetchNamespaces(&namespaces, errChan, &wg)
 	go in.fetchWorkloads(&workloads, namespace, errChan, &wg)
 	go in.fetchAllWorkloads(&workloadsPerNamespace, errChan, &wg)
@@ -124,6 +126,7 @@ func (in *IstioValidationsService) getAllObjectCheckers(namespace string, istioD
 
 func (in *IstioValidationsService) GetIstioObjectValidations(namespace string, objectType string, object string) (models.IstioValidations, error) {
 	var istioDetails kubernetes.IstioDetails
+	var exportedResources kubernetes.ExportedResources
 	var namespaces models.Namespaces
 	var services []core_v1.Service
 	var workloads models.WorkloadList
@@ -148,6 +151,7 @@ func (in *IstioValidationsService) GetIstioObjectValidations(namespace string, o
 	wg.Add(9)
 	go in.fetchNamespaces(&namespaces, errChan, &wg)
 	go in.fetchDetails(&istioDetails, namespace, errChan, &wg)
+	go in.fetchExportedResources(&exportedResources, namespace, errChan, &wg)
 	go in.fetchServices(&services, namespace, errChan, &wg)
 	go in.fetchWorkloads(&workloads, namespace, errChan, &wg)
 	go in.fetchAllWorkloads(&workloadsPerNamespace, errChan, &wg)
@@ -417,6 +421,7 @@ func (in *IstioValidationsService) fetchDetails(rValue *kubernetes.IstioDetails,
 			}
 			go fetchIstioObjects(&istioDetails.VirtualServices, namespace, getVirtualServices, &wg2, errChan2)
 		}
+
 		if IsResourceCached(namespace, kubernetes.DestinationRules) {
 			istioDetails.DestinationRules, err = kialiCache.GetIstioObjects(namespace, kubernetes.DestinationRules, "")
 		} else {
@@ -477,6 +482,103 @@ func (in *IstioValidationsService) fetchDetails(rValue *kubernetes.IstioDetails,
 		} else {
 			*rValue = istioDetails
 		}
+	}
+}
+
+func (in *IstioValidationsService) fetchExportedResources(exportedResources *kubernetes.ExportedResources, namespace string, errChan chan error, wg *sync.WaitGroup) {
+	defer wg.Done()
+	if len(errChan) == 0 {
+		nss, err := in.businessLayer.Namespace.GetNamespaces()
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		currentVSs, err := in.fetchVirtualServices(namespace)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		currentDRs, err := in.fetchDestinationRules(namespace)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		currentSEs, err := in.fetchServiceEntries(namespace)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		for _, ns := range nss {
+			vsList, err := in.fetchVirtualServices(ns.Name)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if containsExportToNamespacesIstioObjects(ns, currentVSs) {
+				exportedResources.VirtualServices = append(exportedResources.VirtualServices, vsList...)
+			}
+
+			drList, err := in.fetchDestinationRules(ns.Name)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if containsExportToNamespacesIstioObjects(ns, currentDRs) {
+				exportedResources.DestinationRules = append(exportedResources.DestinationRules, drList...)
+			}
+
+			seList, err := in.fetchServiceEntries(ns.Name)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if containsExportToNamespacesIstioObjects(ns, currentSEs) {
+				exportedResources.ServiceEntries = append(exportedResources.ServiceEntries, seList...)
+			}
+		}
+	}
+}
+
+func containsExportToNamespacesIstioObjects(ns models.Namespace, currentIstioObjects []kubernetes.IstioObject) bool {
+	for _, vs := range currentIstioObjects {
+		if exportToSpec, found := vs.GetSpec()["exportTo"]; found {
+			if namespaces, ok := exportToSpec.([]interface{}); ok {
+				for _, exportToNs := range namespaces {
+					// take only namespaces where it is exported to, or if it is exported to current namespace
+					if (exportToNs == "." && ns.Name == vs.GetObjectMeta().Namespace) || exportToNs == ns.Name || exportToNs == "*" {
+						return true
+					}
+				}
+			}
+		} else {
+			return true
+		}
+	}
+	return false
+}
+
+func (in *IstioValidationsService) fetchVirtualServices(namespace string) ([]kubernetes.IstioObject, error) {
+	if IsResourceCached(namespace, kubernetes.VirtualServices) {
+		return kialiCache.GetIstioObjects(namespace, kubernetes.VirtualServices, "")
+	} else {
+		return in.k8s.GetIstioObjects(namespace, kubernetes.VirtualServices, "")
+	}
+}
+
+func (in *IstioValidationsService) fetchDestinationRules(namespace string) ([]kubernetes.IstioObject, error) {
+	if IsResourceCached(namespace, kubernetes.DestinationRules) {
+		return kialiCache.GetIstioObjects(namespace, kubernetes.DestinationRules, "")
+	} else {
+		return in.k8s.GetIstioObjects(namespace, kubernetes.DestinationRules, "")
+	}
+}
+
+func (in *IstioValidationsService) fetchServiceEntries(namespace string) ([]kubernetes.IstioObject, error) {
+	if IsResourceCached(namespace, kubernetes.ServiceEntries) {
+		return kialiCache.GetIstioObjects(namespace, kubernetes.ServiceEntries, "")
+	} else {
+		return in.k8s.GetIstioObjects(namespace, kubernetes.ServiceEntries, "")
 	}
 }
 
