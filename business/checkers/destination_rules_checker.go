@@ -10,10 +10,12 @@ import (
 const DestinationRuleCheckerType = "destinationrule"
 
 type DestinationRulesChecker struct {
-	DestinationRules []kubernetes.IstioObject
-	MTLSDetails      kubernetes.MTLSDetails
-	ServiceEntries   []kubernetes.IstioObject
-	Namespaces       []models.Namespace
+	DestinationRules         []kubernetes.IstioObject
+	ExportedDestinationRules []kubernetes.IstioObject
+	MTLSDetails              kubernetes.MTLSDetails
+	ServiceEntries           []kubernetes.IstioObject
+	ExportedServiceEntries   []kubernetes.IstioObject
+	Namespaces               []models.Namespace
 }
 
 func (in DestinationRulesChecker) Check() models.IstioValidations {
