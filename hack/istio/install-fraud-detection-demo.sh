@@ -1,12 +1,11 @@
 #/bin/bash
 
-# This deploys the error rates demo
+# This deploys the fraud-detection demo
 
 : ${CLIENT_EXE:=oc}
 : ${DELETE_DEMO:=false}
 : ${ENABLE_INJECTION:=true}
-: ${NAMESPACE_ALPHA:=alpha}
-: ${NAMESPACE_BETA:=beta}
+: ${NAMESPACE:=fraud-detection}
 : ${SOURCE:="https://raw.githubusercontent.com/kiali/demos/master"}
 
 while [ $# -gt 0 ]; do
@@ -28,7 +27,7 @@ while [ $# -gt 0 ]; do
       cat <<HELPMSG
 Valid command line arguments:
   -c|--client: either 'oc' or 'kubectl'
-  -d|--delete: either 'true' or 'false'. If 'true' the demo will be deleted, not installed.
+  -d|--delete: either 'true' or 'false'. If 'true' the fraud detection demo will be deleted, not installed.
   -ei|--enable-injection: either 'true' or 'false' (default is true). If 'true' auto-inject proxies for the workloads.
   -h|--help: this text
   -s|--source: demo file source. For example: file:///home/me/demos Default: https://raw.githubusercontent.com/kiali/demos/master
@@ -50,8 +49,7 @@ echo Will deploy Error Rates Demo using these settings:
 echo CLIENT_EXE=${CLIENT_EXE}
 echo DELETE_DEMO=${DELETE_DEMO}
 echo ENABLE_INJECTION=${ENABLE_INJECTION}
-echo NAMESPACE_ALPHA=${NAMESPACE_ALPHA}
-echo NAMESPACE_BETA=${NAMESPACE_BETA}
+echo NAMESPACE=${NAMESPACE}
 echo SOURCE=${SOURCE}
 
 IS_OPENSHIFT="false"
@@ -64,46 +62,43 @@ fi
 echo "IS_OPENSHIFT=${IS_OPENSHIFT}"
 echo "IS_MAISTRA=${IS_MAISTRA}"
 
-
 # If we are to delete, remove everything and exit immediately after
 if [ "${DELETE_DEMO}" == "true" ]; then
-  echo "Deleting Error Rates Demo (the envoy filters, if previously created, will remain)"
   if [ "${IS_OPENSHIFT}" == "true" ]; then
     if [ "${IS_MAISTRA}" != "true" ]; then
-      $CLIENT_EXE delete network-attachment-definition istio-cni -n ${NAMESPACE_ALPHA}
-      $CLIENT_EXE delete network-attachment-definition istio-cni -n ${NAMESPACE_BETA}
+      $CLIENT_EXE delete network-attachment-definition istio-cni -n ${NAMESPACE}
     fi
-    $CLIENT_EXE delete security-context-constraints error-rates-scc
+    $CLIENT_EXE delete scc fraud-detection-scc
   fi
-  ${CLIENT_EXE} delete namespace ${NAMESPACE_ALPHA}
-  ${CLIENT_EXE} delete namespace ${NAMESPACE_BETA}
+  ${CLIENT_EXE} delete namespace ${NAMESPACE}
   exit 0
 fi
 
 # Create and prepare the demo namespaces
 
 if [ "${IS_OPENSHIFT}" == "true" ]; then
-  $CLIENT_EXE new-project ${NAMESPACE_ALPHA}
-  $CLIENT_EXE new-project ${NAMESPACE_BETA}
+  $CLIENT_EXE new-project ${NAMESPACE}
 else
-  $CLIENT_EXE create namespace ${NAMESPACE_ALPHA}
-  $CLIENT_EXE create namespace ${NAMESPACE_BETA}
+  $CLIENT_EXE create namespace ${NAMESPACE}
 fi
 
 if [ "${ENABLE_INJECTION}" == "true" ]; then
-  ${CLIENT_EXE} label namespace ${NAMESPACE_ALPHA} istio-injection=enabled
-  ${CLIENT_EXE} label namespace ${NAMESPACE_BETA} istio-injection=enabled
+  ${CLIENT_EXE} label namespace ${NAMESPACE} istio-injection=enabled
 fi
 
 # Deploy the demo
 
-${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/error-rates/alpha.yaml") -n ${NAMESPACE_ALPHA}
-${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/error-rates/beta.yaml") -n ${NAMESPACE_BETA}
-
+${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/fraud-detection/accounts.yaml") -n ${NAMESPACE}
+${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/fraud-detection/cards.yaml") -n ${NAMESPACE}
+${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/fraud-detection/bank.yaml") -n ${NAMESPACE}
+${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/fraud-detection/policies.yaml") -n ${NAMESPACE}
+${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/fraud-detection/claims.yaml") -n ${NAMESPACE}
+${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/fraud-detection/insurance.yaml") -n ${NAMESPACE}
+${CLIENT_EXE} apply -f <(curl -L "${SOURCE}/fraud-detection/fraud.yaml") -n ${NAMESPACE}
 
 if [ "${IS_OPENSHIFT}" == "true" ]; then
   if [ "${IS_MAISTRA}" != "true" ]; then
-    cat <<NAD | $CLIENT_EXE -n ${NAMESPACE_ALPHA} create -f -
+    cat <<NAD | $CLIENT_EXE -n ${NAMESPACE} create -f -
 apiVersion: "k8s.cni.cncf.io/v1"
 kind: NetworkAttachmentDefinition
 metadata:
@@ -114,7 +109,7 @@ NAD
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
-  name: error-rates-scc
+  name: fraud-detection-scc
 runAsUser:
   type: RunAsAny
 seLinuxContext:
@@ -122,8 +117,6 @@ seLinuxContext:
 supplementalGroups:
   type: RunAsAny
 users:
-- "system:serviceaccount:${NAMESPACE_ALPHA}:default"
-- "system:serviceaccount:${NAMESPACE_BETA}:default"
+- "system:serviceaccount:${NAMESPACE}:default"
 SCC
 fi
-
